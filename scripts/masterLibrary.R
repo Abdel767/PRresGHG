@@ -6,3 +6,8 @@ library(plotly)
 library(janitor)
 library(fs)
 library(readxl)
+
+library(sf)
+library(mapview)
+library(leaflet)
+library(spsurvey)
