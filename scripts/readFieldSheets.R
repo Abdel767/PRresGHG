@@ -8,9 +8,7 @@ paths <- "inputData/"
 # a loop for reading each file.  This has been deprecated in favor of fs::dir_ls
 # and purr map (see below).  
 # Create a list of files to read in.  The completed data files all
-# contain the pattern ...surgeDataXXX.xlsx.  This gets everything except 2018 
-# R10 data.  Those data files are '...EqAreaData.xlsx' and need to be inspected 
-# for consistency with SuRGE data files.
+# contain the pattern ...prDataXXX.xlsx.
 
 # labs <- c("ADA", "CIN", "DOE", "NAR", "R10", "RTP", "USGS")
 # paths <- paste0(userPath,  "data/", labs)
@@ -41,18 +39,18 @@ paths <- "inputData/"
 # 2. Function for reading 'data' tab of surgeData files.
 
 get_data_sheet <- function(paths){
-   #d <-  
+   #d <-
   fs::dir_ls(path = paths, # see above
              regexp = 'prData', # file names containing this pattern
              recurse = TRUE) %>% # look in all subdirectories
-    .[!grepl(c(".pdf|.docx"), .)] %>% # remove pdf and .docx review files
+    .[!grepl(c(".pdf|.docx"), .)] %>% # remove pdf and .docx files
     # .[11] %>%
     # map will read each file in fs_path list generated above
     # imap passes the element name (here, the filename) to the function
     purrr::imap(~read_excel(.x, skip = 1, sheet = "data", 
                            na = c("NA", "", "N/A", "n/a")) %>%
-                  # Assign the filename to the visit column for now
-                 mutate(visit = .y)) %>%
+                  # Assign the filename to the campaign_date column for now
+                 mutate(campaign_date = .y)) %>%
     # remove empty dataframes.  Pegasus put empty Excel files in each lake
     # folder at beginning of season.  These files will be populated eventually,
     # but are causing issues with code below
@@ -60,18 +58,8 @@ get_data_sheet <- function(paths){
     # format data
     map(., function(x) { 
       janitor::clean_names(x) %>%
-        # Assign value to visit based on the Excel filename
-        mutate(
-          # visit = if_else(str_detect(visit, "visit2"),
-          #                      2, 1, missing = 1), 
-          #      # format lake_id and site_id.  See Wiki
-          #      lake_id = as.character(lake_id) %>%
-          #        tolower(.) %>% # i.e. Lacustrine -> lacustrine
-          #        str_remove(., "ch4_") %>% # remove any ch4_ from lake_id
-          #        str_remove(., "^0+"), #remove leading zeroes i.e. 078->78
-          #      site_id = as.numeric(gsub(".*?([0-9]+).*", "\\1", site_id)),
-          #      long = case_when(long > 0 ~ long * -1, # longitude should be negative
-          #                       TRUE ~ long),
+        # Assign value to campaign_date based on the Excel filename
+        mutate(campaign_date = substr(x = campaign_date, start = 18, stop = 27),
                # Empty columns cause data-class conflicts; make classes identical
                across(contains(c("lat", "long")), ~ as.numeric(.)),
                across(contains("comment"), ~ as.character(.)),

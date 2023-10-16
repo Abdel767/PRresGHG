@@ -3,7 +3,6 @@
 # LIBRARIES---------------
 # library(ggplot2) # load from masterLibrary
 # library(scales)  # load from masterLibrary
-# source("ohio2016/scriptsAndRmd/masterLibrary.R")
 
 
 # READ DATA -----------------
