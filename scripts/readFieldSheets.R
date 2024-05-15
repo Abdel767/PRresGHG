@@ -89,7 +89,7 @@ fld_sheet <- get_data_sheet(paths = paths)
 get_dg_sheet <- function(paths){
   #d <-  
   fs::dir_ls(path = paths, # see above
-             regexp = 'surgeData', # file names containing this pattern
+             regexp = 'prData', # file names containing this pattern
              recurse = TRUE) %>% # look in all subdirectories
     .[!grepl(c(".pdf|.docx"), .)] %>% # remove pdf and .docx review files
     
