@@ -30,12 +30,24 @@ missing_chamb_deply_date_time <- is.na(fld_sheet$chamb_deply_date_time) # logica
 # Join with fld_sheet to get site_id and chamb_deply_date_time
 # This join duplicates the time series for each station within
 # each lake
-gga_2 <- gga %>%  # warning is OK
-  mutate(lake_id = NA) %>%  # adding this column to facilitate merge with fld_sheet
-  left_join(fld_sheet %>% 
-                       filter(!missing_chamb_deply_date_time) %>%
-                       select(lake_id, site_id, chamb_deply_date_time), 
-                     by = "lake_id")
+#####################################################################################
+# Modified Code (Changes lake id in gga_2 dataset from numeric to character)
+gga_2 <- gga %>%
+  mutate(lake_id = as.character(1000)) %>%
+  left_join(fld_sheet %>%
+              filter(!missing_chamb_deply_date_time) %>%
+              select(lake_id, site_id, chamb_deply_date_time), 
+            by = "lake_id")
+
+# Adjust gga_2 dataset to have numeric site_id
+gga_2 <- gga_2 %>%
+  mutate(site_id = as.numeric(gsub("S-", "", site_id)))
+
+# Check the transformation
+print(head(gga_2$site_id))
+
+
+#####################################################################################
 
 #3. ADD CO2 AND CH4 RETRIEVAL AND DEPLOYMENT TIMES
 # We may want to model different portions of the time series for CO2 and CH4.
@@ -55,15 +67,15 @@ gga_2 <- gga_2 %>%
 # in lab specific Excel file.  
 
 # specify which lake and site to inspect
-#lake_id.i <- "167"  # numeric component of lake_id without leading zero(s), formatted as character
-site_id.i <- 8 # numeric component of lake_id, no leading zero(s), formatted as numeric
+lake_id.i <- "1000"  # numeric component of lake_id without leading zero(s), formatted as character
+site_id.i <- 19 # numeric component of lake_id, no leading zero(s), formatted as numeric
 
 plotCh4 <- gga_2 %>% 
-  filter(#lake_id == lake_id.i, 
-         site_id == site_id.i, 
-         RDateTime > ch4DeplyDtTm - 60, # start plot 1 minute prior to deployment
-         RDateTime < ch4RetDtTm + 60, # extend plot 1 minute post deployment
-         CH4._ppm > 0) %>%
+ filter(lake_id == lake_id.i, 
+        site_id == site_id.i, 
+        RDateTime > ch4DeplyDtTm - 60, # start plot 1 minute prior to deployment
+        RDateTime < ch4RetDtTm + 60, # extend plot 1 minute post deployment
+        CH4._ppm > 0) %>%
   ggplot(aes(RDateTime, CH4._ppm)) + 
   geom_point() +
   geom_vline(aes(xintercept = as.numeric(ch4DeplyDtTm))) +
@@ -83,14 +95,46 @@ plotCo2 <- gga_2 %>%
   geom_vline(aes(xintercept = as.numeric(co2DeplyDtTm))) +
   geom_vline(aes(xintercept = as.numeric(co2RetDtTm))) +
   scale_x_datetime(date_labels = ("%m/%d %H:%M")) +
-  ggtitle(paste("lake_id =", lake_id.i, "site_id = ", site_id.i))
+  ggtitle(paste("site_id = ", site_id.i)) #"lake_id =", lake_id.i,
 ggplotly(plotCo2)
+
+
+#############################################################################################
+# modified code (Cleaner plot design)
+plotCh4 <- gga_2 %>%
+  filter(
+    site_id == site_id.i,
+    RDateTime > ch4DeplyDtTm - minutes(1), 
+    RDateTime < ch4RetDtTm + minutes(1), 
+    CH4._ppm > 0
+  ) %>%
+  ggplot(aes(x = RDateTime, y = CH4._ppm)) +
+  geom_point(color = "blue", size = 1.5) +
+  geom_vline(aes(xintercept = as.numeric(ch4DeplyDtTm)), color = "black", linetype = "dashed", size = 1) +
+  geom_vline(aes(xintercept = as.numeric(ch4RetDtTm)), color = "black", linetype = "dashed", size = 1) +
+  scale_x_datetime(date_labels = "%m/%d %H:%M") +
+  labs(
+    title = paste("Methane Diffusive Concentrations at Site ID:", site_id.i),
+    x = "Date and Time",
+    y = "Methane (ppm)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5), # Centered and bold
+    axis.title.x = element_text(size = 14, face = "bold"), # Bolder and larger X axis title
+    axis.title.y = element_text(size = 14, face = "bold"), # Bolder and larger Y axis title
+    axis.text.x = element_text(size = 12), # Larger X axis text
+    axis.text.y = element_text(size = 12) # Larger Y axis text
+  )
+
+ggplotly(plotCh4)  
+##############################################################################################
 
 #3.2  Read in refined deployment and retrieval data from Excel files.
 # use .xls.  Can read file into R while file is open in Excel, which is convenient.
 
 # Read data
-adjData <- readxl::read_xls(path = "inputData/lgr/chamberAdjustments.xls",
+adjData <- readxl::read_xls(path = "inputData/lgr/chamberAdjustments1000.xls",
                             range =cell_cols("DATA!A:J"), # columns A:J
                             col_types = c("text", "numeric", 
                                           rep("date", 4), 
@@ -135,7 +179,7 @@ gga_2 <- gga_2 %>%
 # Trim data to only those we plan to model, plus 60 second buffer on either side
 # of modeling window.
 gga_3 <- gga_2 %>%
-  group_by(site_id, visit) %>% # for each lake and site....
+  group_by(site_id) %>% # for each lake and site....
   filter(RDateTime > (min(c(co2DeplyDtTm, ch4DeplyDtTm)) - 60) & 
            RDateTime < (max(c(co2RetDtTm, ch4RetDtTm)) + 60)) %>%
   ungroup()
@@ -144,48 +188,79 @@ gga_3 <- gga_2 %>%
 
 #5.  PLOT CO2 AND CH4 PROFILES FOR INSPECTION---------------
 # Plot all profiles on a single .pdf
-pdf("output/figures/ggaProfile.pdf", paper = "a4r") # landscape orientation
-tic()
-for (i in 1:with(gga_3[!is.na(gga_3$lake_id), ], # this eliminates observations without a Lake_Name (LGR data when chamber not deployed)
-                 length(unique(paste(site_id, lake_id))))) {  # each combination of site and lake
-  print(i)
-  site.lake.i <- with(gga_3[!is.na(gga_3$lake_id), ],  # extract unique lake x site combination
-                      unique(paste(site_id, lake_id)))[i]
-  site.i <- gsub(" .*$", "", site.lake.i)  # extract site.  regex allows for siteIDs of different lengths (i.e. S-01, SU-01)
-  lake.i <- substr(site.lake.i, start = nchar(site.i) + 2, stop = nchar(site.lake.i)) # extract lake name
-  data.i <- filter(gga_3, lake_id == lake.i, site_id == site.i) %>%  # Pull out GGA data chunk
-    select(-GasT_C) # No need to plot gas temperature
-  RDate.i <- unique(data.i$RDate)  # for panel title
+# pdf("output/figures/ggaProfile.pdf", paper = "a4r") # landscape orientation
+# tic()
+# for (i in 1:with(gga_3[!is.na(gga_3$lake_id), ], # this eliminates observations without a Lake_Name (LGR data when chamber not deployed)
+#                  length(unique(paste(site_id, lake_id))))) {  # each combination of site and lake
+#   print(i)
+#   site.lake.i <- with(gga_3[!is.na(gga_3$lake_id), ],  # extract unique lake x site combination
+#                       unique(paste(site_id, lake_id)))[i]
+#   site.i <- gsub(" .*$", "", site.lake.i)  # extract site.  regex allows for siteIDs of different lengths (i.e. S-01, SU-01)
+#   lake.i <- substr(site.lake.i, start = nchar(site.i) + 2, stop = nchar(site.lake.i)) # extract lake name
+#   data.i <- filter(gga_3, lake_id == lake.i, site_id == site.i) %>%  # Pull out GGA data chunk
+#     select(-GasT_C) # No need to plot gas temperature
+#   RDate.i <- unique(data.i$RDate)  # for panel title
+# 
+#   plot.i <- ggplot(data.i,  aes(x = RDateTime, y = CH4._ppm)) + 
+#           geom_point() +
+#           geom_vline(data = data.i, aes(xintercept = as.numeric(ch4DeplyDtTm))) +
+#           geom_vline(data = data.i, aes(xintercept = as.numeric(ch4RetDtTm))) +
+#           scale_x_datetime(labels=date_format("%H:%M")) +
+#           ggtitle(paste(lake.i, site.i, RDate.i)) +
+#           theme(axis.text.x = element_text(size = 7),
+#                 plot.title = element_text(size = 11))
+#   
+#   plot.ii <- ggplot(data.i,  aes(x = RDateTime, y = CO2._ppm)) + 
+#           geom_point() +
+#           geom_vline(data = data.i, aes(xintercept = as.numeric(co2DeplyDtTm))) +
+#           geom_vline(data = data.i, aes(xintercept = as.numeric(co2RetDtTm))) +
+#           scale_x_datetime(labels=date_format("%H:%M")) +
+#           ggtitle(paste(lake.i, site.i)) +
+#           theme(axis.text.x = element_text(size = 7))
+#   
+#   
+#   grid.arrange(plot.i, plot.ii, ncol = 2) # use to put two plots per page
+# }
+# 
+# 
+# dev.off() #15 min, 911 pages, 1/6/23
+# 
+# toc()
 
-  plot.i <- ggplot(data.i,  aes(x = RDateTime, y = CH4._ppm)) + 
-          geom_point() +
-          geom_vline(data = data.i, aes(xintercept = as.numeric(ch4DeplyDtTm))) +
-          geom_vline(data = data.i, aes(xintercept = as.numeric(ch4RetDtTm))) +
-          scale_x_datetime(labels=date_format("%H:%M")) +
-          ggtitle(paste(lake.i, site.i, RDate.i)) +
-          theme(axis.text.x = element_text(size = 7),
-                plot.title = element_text(size = 11))
+
+
+###########
+
+# for (i in 1:length(unique(gga_3$site_id))) {  # iterate over unique site IDs
+#   print(i)
+#   site.i <- unique(gga_3$site_id)[i]  # extract the current site ID
+#   
+#   data.i <- filter(gga_3, site_id == site.i) %>%  # Pull out GGA data for the site
+#     select(-GasT_C) # Exclude gas temperature from the plot
+#   
+#   RDate.i <- unique(data.i$RDate)  # for panel title
+#   
+#   plot.i <- ggplot(data.i, aes(x = RDateTime, y = CH4._ppm)) + 
+#     geom_point() +
+#     geom_vline(data = data.i, aes(xintercept = as.numeric(ch4DeplyDtTm))) +
+#     geom_vline(data = data.i, aes(xintercept = as.numeric(ch4RetDtTm))) +
+#     scale_x_datetime(labels=date_format("%H:%M")) +
+#     ggtitle(paste("Site:", site.i, "Date:", RDate.i)) +
+#     theme(axis.text.x = element_text(size = 7),
+#           plot.title = element_text(size = 11))
+#   
+#   plot.ii <- ggplot(data.i, aes(x = RDateTime, y = CO2._ppm)) + 
+#     geom_point() +
+#     geom_vline(data = data.i, aes(xintercept = as.numeric(co2DeplyDtTm))) +
+#     geom_vline(data = data.i, aes(xintercept = as.numeric(co2RetDtTm))) +
+#     scale_x_datetime(labels=date_format("%H:%M")) +
+#     ggtitle(paste("Site:", site.i)) +
+#     theme(axis.text.x = element_text(size = 7))
   
-  plot.ii <- ggplot(data.i,  aes(x = RDateTime, y = CO2._ppm)) + 
-          geom_point() +
-          geom_vline(data = data.i, aes(xintercept = as.numeric(co2DeplyDtTm))) +
-          geom_vline(data = data.i, aes(xintercept = as.numeric(co2RetDtTm))) +
-          scale_x_datetime(labels=date_format("%H:%M")) +
-          ggtitle(paste(lake.i, site.i)) +
-          theme(axis.text.x = element_text(size = 7))
-  
-  grid.arrange(plot.i, plot.ii, ncol = 2) # use to put two plots per page
-}
-
-
-dev.off() #15 min, 911 pages, 1/6/23
-
-toc()
-
-
-
-
-
+  # Display or save the plots as per your requirement
+  # For example, to display:
+#   grid.arrange(plot.i, plot.ii, ncol = 2) # arrange two plots per page
+# }
 
 
 
