@@ -58,6 +58,8 @@ get_data_sheet <- function(paths){
     # format data
     map(., function(x) { 
       janitor::clean_names(x) %>%
+        # remove non-numeric characters from site_id (e.g. S-03)
+        mutate(site_id = as.numeric(gsub(".*?([0-9]+).*", "\\1", site_id))) %>%
         # Assign value to campaign_date based on the Excel filename
         mutate(campaign_date = substr(x = campaign_date, start = 18, stop = 27),
                # Empty columns cause data-class conflicts; make classes identical
