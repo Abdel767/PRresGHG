@@ -36,10 +36,13 @@ gga_2 <- gga %>%
   mutate(lake_id = as.character(1000)) %>%
   left_join(fld_sheet %>%
               filter(!missing_chamb_deply_date_time) %>%
-              select(lake_id, site_id, chamb_deply_date_time), 
-            by = "lake_id")
+              select(lake_id, site_id, campaign_date, chamb_deply_date_time), 
+            by = c("lake_id", "campaign_date"), relationship = "many-to-many")
+dim(gga) #9824
+dim(gga_2) #118,326, gga replicated for each unique campaign_date 
 
 # Adjust gga_2 dataset to have numeric site_id
+# Not necessary, addressed in readFieldSheet
 gga_2 <- gga_2 %>%
   mutate(site_id = as.numeric(gsub("S-", "", site_id)))
 
@@ -110,8 +113,8 @@ plotCh4 <- gga_2 %>%
   ) %>%
   ggplot(aes(x = RDateTime, y = CH4._ppm)) +
   geom_point(color = "blue", size = 1.5) +
-  geom_vline(aes(xintercept = as.numeric(ch4DeplyDtTm)), color = "black", linetype = "dashed", size = 1) +
-  geom_vline(aes(xintercept = as.numeric(ch4RetDtTm)), color = "black", linetype = "dashed", size = 1) +
+  geom_vline(aes(xintercept = as.numeric(ch4DeplyDtTm)), color = "black", linetype = "dashed", linewidth = 1) +
+  geom_vline(aes(xintercept = as.numeric(ch4RetDtTm)), color = "black", linetype = "dashed", linewidth = 1) +
   scale_x_datetime(date_labels = "%m/%d %H:%M") +
   labs(
     title = paste("Methane Diffusive Concentrations at Site ID:", site_id.i),
@@ -139,6 +142,10 @@ adjData <- readxl::read_xls(path = "inputData/lgr/chamberAdjustments1000.xls",
                             col_types = c("text", "numeric", 
                                           rep("date", 4), 
                                           rep("text", 4))) %>% #lake_id is character
+  mutate(campaign_date = case_when(abs(as.Date(co2DeplyDtTm) - as.Date("2023-09-20")) <= 3 ~ as.Date("2023-09-20"),
+                                   abs(as.Date(co2DeplyDtTm) - as.Date("2023-09-26")) <= 3 ~ as.Date("2023-09-26"),
+                                   abs(as.Date(co2DeplyDtTm) - as.Date("2023-10-24")) <= 3 ~ as.Date("2023-10-24"),
+                                   TRUE ~ as.Date("1787-12-07"))) %>% # Delaware is first state to ratify constitution)
   janitor::remove_empty("rows") # remove rows that contain only NA
 
 str(adjData)
@@ -179,7 +186,7 @@ gga_2 <- gga_2 %>%
 # Trim data to only those we plan to model, plus 60 second buffer on either side
 # of modeling window.
 gga_3 <- gga_2 %>%
-  group_by(site_id) %>% # for each lake and site....
+  group_by(site_id, campaign_date) %>% # for each lake and site....
   filter(RDateTime > (min(c(co2DeplyDtTm, ch4DeplyDtTm)) - 60) & 
            RDateTime < (max(c(co2RetDtTm, ch4RetDtTm)) + 60)) %>%
   ungroup()
