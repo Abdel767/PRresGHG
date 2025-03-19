@@ -1,0 +1,21 @@
+﻿name,CO2,CH4,date,hour,min,second
+low ghg std,301.7,1.753,3/19/2025,9,5,45
+low ghg std,301.7,1.753,3/19/2025,9,6,58
+low ghg std,301.7,1.753,3/19/2025,9,7,48
+low ghg std,301.7,1.753,3/19/2025,9,8,38
+low ghg std,301.7,1.753,3/19/2025,9,9,35
+high ghg std,506,504.3,3/19/2025,9,11,15
+high ghg std,506,504.3,3/19/2025,9,12,6
+high ghg std,506,504.3,3/19/2025,9,12,45
+high ghg std,506,504.3,3/19/2025,9,13,51
+high ghg std,506,504.3,3/19/2025,9,14,28
+low dissolved gas,405,40.8,3/19/2025,9,16,2
+low dissolved gas,405,40.8,3/19/2025,9,16,44
+low dissolved gas,405,40.8,3/19/2025,9,17,33
+low dissolved gas,405,40.8,3/19/2025,9,18,33
+low dissolved gas,405,40.8,3/19/2025,9,19,26
+high dissolved gas,16000,8001,3/19/2025,9,21,19
+high dissolved gas,16000,8001,3/19/2025,9,21,51
+high dissolved gas,16000,8001,3/19/2025,9,22,37
+high dissolved gas,16000,8001,3/19/2025,9,23,19
+high dissolved gas,16000,8001,3/19/2025,9,24,3
