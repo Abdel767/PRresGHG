@@ -1,26 +1,29 @@
 #1.  Merge diffusive and ebullitive emissions
 # OUT2 created in "calculateDiffusion.R"
 
+eb_results <- read.csv("inputData/eb_results.csv")
+eb_results$lake_id <- as.character(eb_results$lake_id)
+
 
 dim(OUT2) #1646 observations
 unique(OUT2$lake_id) # there is an <NA>
 OUT2 %>% filter(is.na(lake_id)) # one observation of NAs
 OUT2 <- OUT2 %>% filter(!is.na(lake_id))
 dim(eb_results) #1739 observation
-emissions <- full_join(eb_results, OUT2)
-dim(emissions) #1867
+emissions2 <- full_join(eb_results, OUT2)
+dim(emissions2) #1867
 
 
 
 # CALCULATE TOTAL EMISSION RATES------------------
 # Only calculate if both diff and ebul were quantified
 # tot = NA if is_na(ebul) or is_na(diff)_
-emissions <- mutate(emissions, 
+emissions2 <- mutate(emissions2, 
                      co2_trate_mg_h = co2_drate_mg_h_best + co2_erate_mg_h,
                      ch4_trate_mg_h = ch4_drate_mg_h_best + ch4_erate_mg_h)
 
 # FORMAT TO BE CONSISTENT WITH CHEM DATA
-emissions <- emissions %>%
+emissions2 <- emissions2 %>%
   # adopt clearer names.  Remove units
   rename_with(~gsub("erate_mg_h", "ebullition", .),
               contains("erate_mg_h")) %>%
@@ -37,8 +40,10 @@ emissions <- emissions %>%
          ch4_total_units = "mg_ch4_m2_h",
          co2_total_units = "mg_co2_m2_h") %>%
   # arrange columns
-  select(lake_id, visit, site_id, # these first
+  select(lake_id, site_id, # these first
          sort(tidyselect::peek_vars())) # all others alphabetical
+
+readr::write_csv(emissions2, "emissions2.csv")
 
 # # CO2 EQUIVALENTS------------------
 # source("ohio2016/scriptsAndRmd/co2Equiv.R")

@@ -32,3 +32,5 @@ mass.rate <- function(X1, choice1){
   # return mass flux rate in mg ch4-co2-n2o /hour/m2
   mass.flux.rate
 }
+
+

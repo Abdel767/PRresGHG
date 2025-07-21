@@ -9,10 +9,6 @@
 # source("scripts/readFieldSheets.R") # read prData...xlsx.  fld_sheet, dg_sheet
 # source("scripts/readLgr.R") # read raw LGR data
 
-
-
-
-
 #1. INSPECT INSTANCES OF NA IN GGA------------
 # Time/date stamp first
 filter(gga, is.na(RDateTime))
@@ -31,24 +27,27 @@ missing_chamb_deply_date_time <- is.na(fld_sheet$chamb_deply_date_time) # logica
 # This join duplicates the time series for each station within
 # each lake
 #####################################################################################
-# Modified Code (Changes lake id in gga_2 dataset from numeric to character)
-gga_2 <- gga %>%
-  mutate(lake_id = as.character(1000)) %>%
-  left_join(fld_sheet %>%
-              filter(!missing_chamb_deply_date_time) %>%
-              select(lake_id, site_id, campaign_date, chamb_deply_date_time), 
-            by = c("lake_id", "campaign_date"), relationship = "many-to-many")
-dim(gga) #9824
-dim(gga_2) #118,326, gga replicated for each unique campaign_date 
 
-# Adjust gga_2 dataset to have numeric site_id
-# Not necessary, addressed in readFieldSheet
-gga_2 <- gga_2 %>%
-  mutate(site_id = as.numeric(gsub("S-", "", site_id)))
+gga$RDateTime <- as.POSIXct(gga$RDateTime, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+fld_sheet$chamb_deply_date_time <- as.POSIXct(fld_sheet$chamb_deply_date_time, format = "%Y-%m-%d %H:%M:%S", tz = "UTC")
 
-# Check the transformation
-print(head(gga_2$site_id))
+# Filter only sites that were sampled (eval_status == "TS")
+fld_ts <- fld_sheet %>%
+  filter(eval_status == "TS") %>%
+  select(lake_id, site_id, chamb_deply_date_time)
 
+# Perform fuzzy join using a 24-hour tolerance window
+gga_2 <- difference_inner_join(
+  gga, fld_ts,
+  by = c("RDateTime" = "chamb_deply_date_time"),
+  max_dist = as.difftime(24, units = "hours"),
+  distance_col = "time_diff"
+) %>%
+  arrange(RDateTime, time_diff) %>%
+  distinct(RDateTime, .keep_all = TRUE)
+
+# Optional: remove time_diff if not needed
+gga_2 <- gga_2 %>% select(-time_diff)
 
 #####################################################################################
 
@@ -69,27 +68,33 @@ gga_2 <- gga_2 %>%
 #3.1  Manually inspect each plot and record best deployment and retrieval times
 # in lab specific Excel file.  
 
-# specify which lake and site to inspect
+# specify which lake, site, and campaign date to inspect
 lake_id.i <- "1000"  # numeric component of lake_id without leading zero(s), formatted as character
-site_id.i <- 19 # numeric component of lake_id, no leading zero(s), formatted as numeric
+# campaign_date.i <- as.Date("2023-09-19") # campaign date formatted as Date
+# campaign_date.i <- as.Date("2023-10-24")
+# campaign_date.i <- as.Date("2023-10-27")
+RDate.i <- as.Date("2024-08-04")
+site_id.i <- 24 # numeric component of site_id, formatted as numeric
 
 plotCh4 <- gga_2 %>% 
- filter(lake_id == lake_id.i, 
-        site_id == site_id.i, 
-        RDateTime > ch4DeplyDtTm - 60, # start plot 1 minute prior to deployment
-        RDateTime < ch4RetDtTm + 60, # extend plot 1 minute post deployment
-        CH4._ppm > 0) %>%
+  filter(lake_id == lake_id.i, 
+         site_id == site_id.i, 
+         as.Date(RDateTime) == RDate.i, # filter by campaign date
+         RDateTime > ch4DeplyDtTm - 60, # start plot 1 minute prior to deployment
+         RDateTime < ch4RetDtTm + 60, # extend plot 1 minute post deployment
+         CH4._ppm > 0) %>%
   ggplot(aes(RDateTime, CH4._ppm)) + 
   geom_point() +
   geom_vline(aes(xintercept = as.numeric(ch4DeplyDtTm))) +
   geom_vline(aes(xintercept = as.numeric(ch4RetDtTm))) +
   scale_x_datetime(date_labels = ("%m/%d %H:%M")) +
-  ggtitle(paste("site_id = ", site_id.i))
+  ggtitle(paste("site_id =", site_id.i, "campaign_date =", RDate.i))
 ggplotly(plotCh4)  
 
 plotCo2 <- gga_2 %>% 
   filter(lake_id == lake_id.i, 
          site_id == site_id.i, 
+         as.Date(RDateTime) == RDate.i, # filter by campaign date
          RDateTime > co2DeplyDtTm - 60, # start plot 1 minute prior to deployment
          RDateTime < co2RetDtTm + 60, # extend plot 1 minute post deployment
          CO2._ppm > 0) %>%
@@ -98,78 +103,72 @@ plotCo2 <- gga_2 %>%
   geom_vline(aes(xintercept = as.numeric(co2DeplyDtTm))) +
   geom_vline(aes(xintercept = as.numeric(co2RetDtTm))) +
   scale_x_datetime(date_labels = ("%m/%d %H:%M")) +
-  ggtitle(paste("site_id = ", site_id.i)) #"lake_id =", lake_id.i,
+  ggtitle(paste("site_id =", site_id.i, "campaign_date =", RDate.i))
 ggplotly(plotCo2)
 
-
-#############################################################################################
-# modified code (Cleaner plot design)
-plotCh4 <- gga_2 %>%
-  filter(
-    site_id == site_id.i,
-    RDateTime > ch4DeplyDtTm - minutes(1), 
-    RDateTime < ch4RetDtTm + minutes(1), 
-    CH4._ppm > 0
-  ) %>%
-  ggplot(aes(x = RDateTime, y = CH4._ppm)) +
-  geom_point(color = "blue", size = 1.5) +
-  geom_vline(aes(xintercept = as.numeric(ch4DeplyDtTm)), color = "black", linetype = "dashed", linewidth = 1) +
-  geom_vline(aes(xintercept = as.numeric(ch4RetDtTm)), color = "black", linetype = "dashed", linewidth = 1) +
-  scale_x_datetime(date_labels = "%m/%d %H:%M") +
-  labs(
-    title = paste("Methane Diffusive Concentrations at Site ID:", site_id.i),
-    x = "Date and Time",
-    y = "Methane (ppm)"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(size = 16, face = "bold", hjust = 0.5), # Centered and bold
-    axis.title.x = element_text(size = 14, face = "bold"), # Bolder and larger X axis title
-    axis.title.y = element_text(size = 14, face = "bold"), # Bolder and larger Y axis title
-    axis.text.x = element_text(size = 12), # Larger X axis text
-    axis.text.y = element_text(size = 12) # Larger Y axis text
-  )
-
-ggplotly(plotCh4)  
-##############################################################################################
 
 #3.2  Read in refined deployment and retrieval data from Excel files.
 # use .xls.  Can read file into R while file is open in Excel, which is convenient.
 
 # Read data
-adjData <- readxl::read_xls(path = "inputData/lgr/chamberAdjustments1000.xls",
-                            range =cell_cols("DATA!A:J"), # columns A:J
-                            col_types = c("text", "numeric", 
-                                          rep("date", 4), 
-                                          rep("text", 4))) %>% #lake_id is character
-  mutate(campaign_date = case_when(abs(as.Date(co2DeplyDtTm) - as.Date("2023-09-20")) <= 3 ~ as.Date("2023-09-20"),
-                                   abs(as.Date(co2DeplyDtTm) - as.Date("2023-09-26")) <= 3 ~ as.Date("2023-09-26"),
-                                   abs(as.Date(co2DeplyDtTm) - as.Date("2023-10-24")) <= 3 ~ as.Date("2023-10-24"),
-                                   TRUE ~ as.Date("1787-12-07"))) %>% # Delaware is first state to ratify constitution)
-  janitor::remove_empty("rows") # remove rows that contain only NA
-
-str(adjData)
-
+# adjData <- readxl::read_xls(path = "inputData/lgr/chamberAdjustments1000.xls",
+#                             range =cell_cols("DATA!A:J"), # columns A:J
+#                             col_types = c("text", "numeric", 
+#                                           rep("date", 4), 
+#                                           rep("text", 4))) %>% #lake_id is character
+#   mutate(campaign_date = case_when(abs(as.Date(co2DeplyDtTm) - as.Date("2023-09-20")) <= 3 ~ as.Date("2023-09-20"),
+#                                    abs(as.Date(co2DeplyDtTm) - as.Date("2023-10-24")) <= 3 ~ as.Date("2023-10-24"),
+#                                    TRUE ~ as.Date("1787-12-07"))) %>% # Delaware is first state to ratify constitution)
+#   janitor::remove_empty("rows") # remove rows that contain only NA
+# 
+# str(adjData)
+####################################################################################################################################
+#3.2 Load chamberAdjustment data
+adjData <- readxl::read_xls(path = "inputData/lgr/ChamberAdjustmentsThesisAbdel.xls",
+                             range = cell_cols("A:J"), # columns A:J
+                             col_types = c("text", "numeric", 
+                                           rep("date", 4), 
+                                           rep("text", 4))) %>% #lake_id is character
+  # Ensure dates are properly parsed
+  mutate(co2DeplyDtTm = as.POSIXct(co2DeplyDtTm),
+         co2RetDtTm = as.POSIXct(co2RetDtTm),
+         ch4DeplyDtTm = as.POSIXct(ch4DeplyDtTm),
+         ch4RetDtTm = as.POSIXct(ch4RetDtTm)) %>%
+  # Create campaign_date containing only the date part
+  mutate(campaign_date = as.Date(co2DeplyDtTm)) %>%
+  # Remove rows that contain only NA
+  janitor::remove_empty("rows")
+#####################################################################################################################################
 #3.3. update deployment and retrieval times based on fixes above (see 3.1 and 3.2)
-gga_2 <- gga_2 %>% 
-  # remove co2DeplyDtTm, co2RetDtTm, ch4DeplyDtTm, and ch4RetDtTm.  They will be replaced with
-  # data from adjData or derived from chamb_deply_date_time
-  select(-contains("DtTm")) %>%
-  # Remove these columns if present.  Won't be present first time through, but
-  # will in subsequent iterations.  Will be replaced with data from adjData.
-  # This won't throw error if specified columns are absent.
-  select_if(!names(.) %in% c("co2Notes", "ch4Notes", "co2Status", "ch4Status")) %>%
-  # Join with adjDataDf.
-  left_join(., adjData) %>%
-  # mutate ensures that all records have deployment and retrieval times for CO2 and CH4
-  mutate(co2DeplyDtTm = case_when(is.na(co2DeplyDtTm) ~ chamb_deply_date_time, # if na, then use field sheet data
-                            TRUE ~ co2DeplyDtTm), # if not na, then use data supplied from adjDataDf
-         co2RetDtTm = case_when(is.na(co2RetDtTm) ~ chamb_deply_date_time + (60*5), # assume retrieval 5 minutes after deployment
-                            TRUE ~ co2RetDtTm), # if not na, then use data supplied from adjDataDf
-         ch4DeplyDtTm = case_when(is.na(ch4DeplyDtTm) ~ chamb_deply_date_time, # if na, then use field sheet data
-                                  TRUE ~ ch4DeplyDtTm), # if not na, then use data supplied from adjDataDf
-         ch4RetDtTm = case_when(is.na(ch4RetDtTm) ~ chamb_deply_date_time + (60*5), # assume retrieval 5 minutes after deployment
-                                TRUE ~ ch4RetDtTm))  # if not na, then use data supplied from adjDataDf
+# gga_2 <- gga_2 %>% 
+#   # remove co2DeplyDtTm, co2RetDtTm, ch4DeplyDtTm, and ch4RetDtTm.  They will be replaced with
+#   # data from adjData or derived from chamb_deply_date_time
+#   select(-contains("DtTm")) %>%
+#   # Remove these columns if present.  Won't be present first time through, but
+#   # will in subsequent iterations.  Will be replaced with data from adjData.
+#   # This won't throw error if specified columns are absent.
+#   select_if(!names(.) %in% c("co2Notes", "ch4Notes", "co2Status", "ch4Status")) %>%
+#   # Join with adjDataDf.
+#   left_join(., adjData) %>%
+#   # mutate ensures that all records have deployment and retrieval times for CO2 and CH4
+#   mutate(co2DeplyDtTm = case_when(is.na(co2DeplyDtTm) ~ chamb_deply_date_time, # if na, then use field sheet data
+#                             TRUE ~ co2DeplyDtTm), # if not na, then use data supplied from adjDataDf
+#          co2RetDtTm = case_when(is.na(co2RetDtTm) ~ chamb_deply_date_time + (60*5), # assume retrieval 5 minutes after deployment
+#                             TRUE ~ co2RetDtTm), # if not na, then use data supplied from adjDataDf
+#          ch4DeplyDtTm = case_when(is.na(ch4DeplyDtTm) ~ chamb_deply_date_time, # if na, then use field sheet data
+#                                   TRUE ~ ch4DeplyDtTm), # if not na, then use data supplied from adjDataDf
+#          ch4RetDtTm = case_when(is.na(ch4RetDtTm) ~ chamb_deply_date_time + (60*5), # assume retrieval 5 minutes after deployment
+#                                 TRUE ~ ch4RetDtTm))  # if not na, then use data supplied from adjDataDf
+gga_2 <- gga_2 %>%
+  select(-any_of(c("co2DeplyDtTm", "co2RetDtTm", "ch4DeplyDtTm", "ch4RetDtTm",
+                   "co2Notes", "ch4Notes", "co2Status", "ch4Status"))) %>%
+  left_join(adjData, by = c("lake_id", "site_id")) %>%
+  mutate(
+    co2DeplyDtTm = coalesce(co2DeplyDtTm, chamb_deply_date_time),
+    co2RetDtTm   = coalesce(co2RetDtTm, chamb_deply_date_time + minutes(5)),
+    ch4DeplyDtTm = coalesce(ch4DeplyDtTm, chamb_deply_date_time),
+    ch4RetDtTm   = coalesce(ch4RetDtTm, chamb_deply_date_time + minutes(5))
+  )
 
 # GO BACK TO STEP 3.1 TO REVIEW TIME SERIES AFTER INCORPORATING NEW DEPLOYMENT AND RETRIEVAL TIMES
 # IF SATISFIED WITH PROFILES, MOVE ON TO STEP 4.
@@ -186,7 +185,7 @@ gga_2 <- gga_2 %>%
 # Trim data to only those we plan to model, plus 60 second buffer on either side
 # of modeling window.
 gga_3 <- gga_2 %>%
-  group_by(site_id, campaign_date) %>% # for each lake and site....
+  group_by(site_id) %>% # for each lake and site....
   filter(RDateTime > (min(c(co2DeplyDtTm, ch4DeplyDtTm)) - 60) & 
            RDateTime < (max(c(co2RetDtTm, ch4RetDtTm)) + 60)) %>%
   ungroup()
@@ -268,6 +267,117 @@ gga_3 <- gga_2 %>%
   # For example, to display:
 #   grid.arrange(plot.i, plot.ii, ncol = 2) # arrange two plots per page
 # }
+####################################################################################################
+
+
+# # Convert campaign_date to Date format
+# adjData$campaign_date <- as.Date(adjData$campaign_date, format="%Y-%m-%d")
+# 
+# # Function to plot CH4 data
+# plot_ch4_data <- function(lake_id.i, site_id.i, campaign_date.i, gga_2, adjData) {
+#   # Filter the time windows for the specific site and campaign date
+#   adjData <- filter(adjData, lake_id == lake_id.i & site_id == site_id.i & campaign_date == campaign_date.i)
+#   
+#   if (nrow(adjData) > 0) {
+#     ch4_deploy <- as.POSIXct(adjData$ch4DeplyDtTm, format="%Y-%m-%d %H:%M:%S")
+#     ch4_retrieve <- as.POSIXct(adjData$ch4RetDtTm, format="%Y-%m-%d %H:%M:%S")
+#     
+#     plotCh4 <- gga_2 %>% 
+#       filter(lake_id == lake_id.i, 
+#              site_id == site_id.i, 
+#              as.Date(RDateTime) == campaign_date.i, # filter by campaign date
+#              RDateTime > ch4_deploy - 60, # start plot 1 minute prior to deployment
+#              RDateTime < ch4_retrieve + 60, # extend plot 1 minute post deployment
+#              CH4._ppm > 0) %>%
+#       ggplot(aes(RDateTime, CH4._ppm)) + 
+#       geom_point() +
+#       geom_vline(xintercept = as.numeric(ch4_deploy)) +
+#       geom_vline(xintercept = as.numeric(ch4_retrieve)) +
+#       scale_x_datetime(date_labels = ("%m/%d %H:%M")) +
+#       ggtitle(paste("site_id =", site_id.i, "campaign_date =", campaign_date.i))
+#     
+#     ggplotly(plotCh4)
+#   } else {
+#     print(paste("No time window data available for site", site_id.i, "on", campaign_date.i))
+#   }
+# }
+# 
+# # Function to plot CO2 data
+# plot_co2_data <- function(lake_id.i, site_id.i, campaign_date.i, gga_2, adjData) {
+#   # Filter the time windows for the specific site and campaign date
+#   adjData <- filter(adjData, lake_id == lake_id.i & site_id == site_id.i & campaign_date == campaign_date.i)
+#   
+#   if (nrow(adjData) > 0) {
+#     co2_deploy <- as.POSIXct(adjData$co2DeplyDtTm, format="%Y-%m-%d %H:%M:%S")
+#     co2_retrieve <- as.POSIXct(adjData$co2RetDtTm, format="%Y-%m-%d %H:%M:%S")
+#     
+#     plotCo2 <- gga_2 %>% 
+#       filter(lake_id == lake_id.i, 
+#              site_id == site_id.i, 
+#              as.Date(RDateTime) == campaign_date.i, # filter by campaign date
+#              RDateTime > co2_deploy - 60, # start plot 1 minute prior to deployment
+#              RDateTime < co2_retrieve + 60, # extend plot 1 minute post deployment
+#              CO2._ppm > 0) %>%
+#       ggplot(aes(RDateTime, CO2._ppm)) + 
+#       geom_point() +
+#       geom_vline(xintercept = as.numeric(co2_deploy)) +
+#       geom_vline(xintercept = as.numeric(co2_retrieve)) +
+#       scale_x_datetime(date_labels = ("%m/%d %H:%M")) +
+#       ggtitle(paste("site_id =", site_id.i, "campaign_date =", campaign_date.i))
+#     
+#     ggplotly(plotCo2)
+#   } else {
+#     print(paste("No time window data available for site", site_id.i, "on", campaign_date.i))
+#   }
+# }
+# 
+# # Example calls for site 3 on the campaign dates "2023-10-27"
+# plot_ch4_data("1000", 3, as.Date("2023-10-27"), gga_2, adjData)
+# plot_co2_data("1000", 3, as.Date("2023-10-27"), gga_2, adjData)
+# 
+# # Repeat for other sites and dates as needed
+# plot_ch4_data("1000", 7, as.Date("2023-10-27"), gga_2, adjData)
+# plot_co2_data("1000", 7, as.Date("2023-10-27"), gga_2, adjData)
+# 
+# plot_ch4_data("1000", 2, as.Date("2023-10-27"), gga_2, adjData)
+# plot_co2_data("1000", 2, as.Date("2023-10-27"), gga_2, adjData)
+
+# Get all unique site-lake combinations
+site_lake_combos <- unique(paste(gga_3$lake_id, gga_3$site_id))
+
+# Loop through each site-lake combo
+for (i in seq_along(site_lake_combos)) {
+  lake.i <- strsplit(site_lake_combos[i], " ")[[1]][1]
+  site.i <- strsplit(site_lake_combos[i], " ")[[1]][2]
+  
+  data.i <- gga_3 %>%
+    filter(lake_id == lake.i, site_id == site.i)
+  
+  if (nrow(data.i) == 0) next
+  
+  plot.ch4 <- ggplot(data.i, aes(x = RDateTime, y = CH4._ppm)) +
+    geom_point() +
+    geom_vline(aes(xintercept = as.numeric(ch4DeplyDtTm))) +
+    geom_vline(aes(xintercept = as.numeric(ch4RetDtTm))) +
+    scale_x_datetime(labels = date_format("%m/%d %H:%M")) +
+    ggtitle(paste("Lake:", lake.i, "Site:", site.i, "CH4")) +
+    theme(axis.text.x = element_text(size = 7),
+          plot.title = element_text(size = 11))
+  
+  plot.co2 <- ggplot(data.i, aes(x = RDateTime, y = CO2._ppm)) +
+    geom_point() +
+    geom_vline(aes(xintercept = as.numeric(co2DeplyDtTm))) +
+    geom_vline(aes(xintercept = as.numeric(co2RetDtTm))) +
+    scale_x_datetime(labels = date_format("%m/%d %H:%M")) +
+    ggtitle(paste("Lake:", lake.i, "Site:", site.i, "CO2")) +
+    theme(axis.text.x = element_text(size = 7))
+  
+  # Display plots side by side
+  grid.arrange(plot.ch4, plot.co2, ncol = 2)
+  
+  # Prompt user to press Enter to continue
+  readline(prompt = paste0("(", i, "/", length(site_lake_combos), ") Press [Enter] to continue to the next site..."))
+}
 
 
 

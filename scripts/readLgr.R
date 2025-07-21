@@ -23,7 +23,7 @@ txtFiles <- paste0("inputData/lgr/", txtFiles)
 
 ggaList <- list()  # Empty list to hold results
 
-tic() #
+tic() 
 for (i in 1:length(txtFiles)) {  # loop to read and format each file
   print(i)
   if (grepl(pattern = "gga", x = txtFiles[i])) { 
@@ -67,7 +67,9 @@ for (i in 1:length(txtFiles)) {  # loop to read and format each file
   }
   
   # FORMAT DATA
-  gga.i <- gga.i[1:(which(gga.i$SysTime == "-----BEGIN PGP MESSAGE-----") - 1), ]  # Remove PGP message
+  if (any(gga.i$SysTime == "-----BEGIN PGP MESSAGE-----")) {
+    gga.i <- gga.i[1:(which(gga.i$SysTime == "-----BEGIN PGP MESSAGE-----")[1] - 1), ]
+  } # Remove PGP message
   gga.i$Time <- gsub("^\\s+|\\s+$", "", gga.i$Time)  #  Strip white spaces
   gga.i$Date <- substr(gga.i$Time, start=1, stop=10)  # Extract date
   gga.i$Second <- round(  # extract second, round to integer
@@ -81,10 +83,9 @@ for (i in 1:length(txtFiles)) {  # loop to read and format each file
                                 format="%m/%d/%Y%H:%M:%S",
                                 tz = "UTC")  # POSIXct
   gga.i$RDate <- as.Date(gga.i$Date, format = "%m/%d/%Y")  # format as R Date oject
-  gga.i <- gga.i %>% mutate(campaign_date = case_when(abs(gga.i$RDate - as.Date("2023-09-20")) <= 3 ~ as.Date("2023-09-20"),
-                                                      abs(gga.i$RDate - as.Date("2023-09-26")) <= 3 ~ as.Date("2023-09-26"),
-                                                      abs(gga.i$RDate - as.Date("2023-10-24")) <= 3 ~ as.Date("2023-10-24"),
-                                                      TRUE ~ as.Date("1787-12-07"))) # Delaware is first state to ratify constitution
+  gga.i <- gga.i %>%
+    mutate(campaign_date = as.Date(RDate))
+  
   names(gga.i)[grep("ppm", names(gga.i))] = gsub("^X.", "", names(gga.i)[grep("X", names(gga.i))]) # replace "X." with ""
   gga.i <- dplyr::select(gga.i, campaign_date, RDate, RDateTime, CH4._ppm, CO2._ppm, GasT_C)  # select columns of interest
   
